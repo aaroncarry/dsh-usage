@@ -1,6 +1,6 @@
 /** Pure derivations behind the usage dashboard; no React or DOM access. */
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { UsageIssue, UsageRecord, UsageSession, UsageSnapshot } from '@deepseek-ai/dsh-client-ui-usage/types'
+import type { UsageIssue, UsageRecord, UsageSession, UsageSnapshot } from 'dsh-usage/types'
 
 export type Period = 7 | 30 | 90 | 365
 /** Inclusive local-calendar day range; both ends are midnights. */

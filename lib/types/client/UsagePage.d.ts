@@ -1,6 +1,6 @@
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import type { SessionId } from '@deepseek-ai/dsh-session/types';
-import type { UsageProgress, UsageSnapshot } from '@deepseek-ai/dsh-client-ui-usage/types';
+import type { UsageProgress, UsageSnapshot } from 'dsh-usage/types';
 /** Dashboard observation shared with the page while it is mounted. */
 export interface UsagePageState {
     readonly snapshot?: UsageSnapshot;

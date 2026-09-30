@@ -3,7 +3,7 @@ description: "Install a Desktop Usage sidebar dashboard that reads provider-repo
 kind: "package-bundle"
 ---
 
-# @deepseek-ai/dsh-client-ui-usage
+# dsh-usage
 
 English | [中文](README.zh.md)
 
@@ -34,7 +34,7 @@ git clone https://github.com/aaroncarry/dsh-usage.git D:\dsh-usage
 dsh plugin --profile desktop add D:\dsh-usage
 ```
 
-The installer adds this package to the Desktop profile and activates its `dsh.bundle.patch` layer. Remove it with `dsh plugin --profile desktop remove @deepseek-ai/dsh-client-ui-usage`, then reopen Desktop. A package without the bundle declaration installs as a dependency but adds no dashboard row.
+The installer adds this package to the Desktop profile and activates its `dsh.bundle.patch` layer. Remove it with `dsh plugin --profile desktop remove dsh-usage`, then reopen Desktop. A package without the bundle declaration installs as a dependency but adds no dashboard row.
 
 ### What you get
 
@@ -42,7 +42,7 @@ The layer inserts one `ui-usage` row:
 
 ```yaml
 - id: ui-usage
-  name: '@deepseek-ai/dsh-client-ui-usage'
+  name: 'dsh-usage'
 ```
 
 The Host reads Session Query and Workspace Registry. The package's Client half mounts its generated Usage Remote, registers localized copy, and contributes the sidebar item and main page. Set optional `readConcurrency` to an integer from 1 to 16 in the plugin row's `config` to limit simultaneous cold session reads; the default is 4. This view is read-only and is not a billing or quota meter.

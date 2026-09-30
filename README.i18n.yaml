@@ -5,39 +5,39 @@
 /:
   en: 50c5ab7c6bb1d3d5
   zh: c213a54f1d79b1f9
-/deepseek-ai-dsh-client-ui-usage:
+/dsh-usage:
   en: 7104b4ae8ec5f0cc
   zh: 9b1777df6bea7209
-/deepseek-ai-dsh-client-ui-usage/summary:
+/dsh-usage/summary:
   en: 8bad3924441886ce
   zh: 37c9b26af2fe9b3f
-/deepseek-ai-dsh-client-ui-usage/table-of-contents:
+/dsh-usage/table-of-contents:
   en: d152484eb41ac6b4
   zh: ce40cab8e7534137
-/deepseek-ai-dsh-client-ui-usage/use-this-package:
+/dsh-usage/use-this-package:
   en: bbff250eba0f1b89
   zh: 0a618f05cc88ee2b
-/deepseek-ai-dsh-client-ui-usage/use-this-package/install-into-a-profile:
+/dsh-usage/use-this-package/install-into-a-profile:
   en: 3f9daf26a2cb99b4
   zh: a202c3f6ba5715b1
-/deepseek-ai-dsh-client-ui-usage/use-this-package/what-you-get:
+/dsh-usage/use-this-package/what-you-get:
   en: 3e411e7de7dc4f4f
   zh: 25c8879d8c23d743
-/deepseek-ai-dsh-client-ui-usage/understand-the-implementation:
+/dsh-usage/understand-the-implementation:
   en: 5022223ba59b055f
   zh: 4a4810ff60075d8a
-/deepseek-ai-dsh-client-ui-usage/further-exploration:
+/dsh-usage/further-exploration:
   en: af7bc197b0b140d5
   zh: 5c7eace6409bfb4c
-/deepseek-ai-dsh-client-ui-usage/model-experience:
+/dsh-usage/model-experience:
   en: 76e6151174e68e60
   zh: 53a2f53df4278d15
-/deepseek-ai-dsh-client-ui-usage/model-experience/kv-cache-effect:
+/dsh-usage/model-experience/kv-cache-effect:
   en: 2c58823a306e864a
   zh: 20051cf3ce913b60
-/deepseek-ai-dsh-client-ui-usage/known-limitations-and-deferred-work:
+/dsh-usage/known-limitations-and-deferred-work:
   en: a82157dfd3b6de77
   zh: 5fc6cb83ed5e0b48
-/deepseek-ai-dsh-client-ui-usage/known-limitations-and-deferred-work/dev-note:
+/dsh-usage/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: a4b126f9a4eaca6f

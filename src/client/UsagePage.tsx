@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { UsageIssue, UsageProgress, UsageRecord, UsageSnapshot } from '@deepseek-ai/dsh-client-ui-usage/types'
+import type { UsageIssue, UsageProgress, UsageRecord, UsageSnapshot } from 'dsh-usage/types'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   deriveDashboard, dayStart, orderedRange, shiftDay, streaks, topWithOther, trendBuckets,

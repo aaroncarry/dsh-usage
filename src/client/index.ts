@@ -1,7 +1,7 @@
 /** Desktop sidebar entry and main page for token usage. */
 import type { Context } from '@deepseek-ai/cordis'
-import usageRemote from '@deepseek-ai/dsh-client-ui-usage/remote'
-import type {} from '@deepseek-ai/dsh-client-ui-usage/remote'
+import usageRemote from 'dsh-usage/remote'
+import type {} from 'dsh-usage/remote'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'

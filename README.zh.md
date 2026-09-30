@@ -3,7 +3,7 @@ description: "安装 Desktop 侧栏的用量统计页，从会话中读取供应
 kind: "package-bundle"
 ---
 
-# @deepseek-ai/dsh-client-ui-usage
+# dsh-usage
 
 [English](README.md) | 中文
 
@@ -34,7 +34,7 @@ git clone https://github.com/aaroncarry/dsh-usage.git D:\dsh-usage
 dsh plugin --profile desktop add D:\dsh-usage
 ```
 
-安装器把本包加入 Desktop profile，并启用其 `dsh.bundle.patch` 配置层。运行 `dsh plugin --profile desktop remove @deepseek-ai/dsh-client-ui-usage` 可移除，然后重新打开 Desktop。未声明组合包的包只会安装为依赖，不会增加统计页条目。
+安装器把本包加入 Desktop profile，并启用其 `dsh.bundle.patch` 配置层。运行 `dsh plugin --profile desktop remove dsh-usage` 可移除，然后重新打开 Desktop。未声明组合包的包只会安装为依赖，不会增加统计页条目。
 
 ### 功能
 
@@ -42,7 +42,7 @@ dsh plugin --profile desktop add D:\dsh-usage
 
 ```yaml
 - id: ui-usage
-  name: '@deepseek-ai/dsh-client-ui-usage'
+  name: 'dsh-usage'
 ```
 
 Host 读取 Session Query 与 Workspace Registry。包的 Client 部分挂载自身生成的 Usage Remote，注册多语言文案，并贡献侧栏入口和主页面。可在插件条目的 `config` 中设置可选的 `readConcurrency`，限制同时读取的冷会话数；取值为 1 至 16 的整数，默认 4。此页只读，不作为账单或额度仪表盘。
