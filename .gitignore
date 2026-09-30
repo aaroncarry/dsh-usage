@@ -1,0 +1,6 @@
+node_modules/
+.verification/
+.env
+.env.*
+lib/*.tsbuildinfo
+lib/**/*.map
