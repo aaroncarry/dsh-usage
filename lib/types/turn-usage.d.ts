@@ -25,7 +25,9 @@ export interface TurnTokenUsage {
  *
  * No attempt is inferred from a usage sample. Any missing lifecycle boundary,
  * incomplete attempt usage, unsafe count, or contradictory exact total makes
- * the whole disclosure unavailable.
+ * the whole disclosure unavailable. The one exception is an attempt that ends
+ * in `llm/retry` before any usage sample arrived: it was never billed and
+ * contributes nothing.
  * @param events - Turn-local durable events from `turn/start` through `turn/end`.
  * @returns exact aggregate usage, or undefined when it cannot be proven.
  */

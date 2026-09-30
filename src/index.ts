@@ -8,6 +8,7 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { UsageIssue, UsageProgress, UsageProject, UsageRecord, UsageSession, UsageSnapshot } from './types.ts'
 import { foldUsageSession, type FoldedUsageSession } from './fold.ts'
+import { createWorkspaceMatcher, withProject } from './project.ts'
 
 export type * from './types.ts'
 
@@ -59,7 +60,7 @@ export default class UsageStatistics extends TypertRemoteService {
   async snapshot(force: boolean): Promise<UsageSnapshot> {
     const workspaces = this.ctx.workspaceRegistry.list()
     const projects: UsageProject[] = workspaces.map(({ id, title }) => ({ id, title }))
-    const workspaceByPath = new Map(workspaces.map(({ id, path }) => [path, id]))
+    const workspaceFor = createWorkspaceMatcher(workspaces)
     const persistence = this.ctx.get('sessionPersistence')
     const [headers, persisted] = await Promise.all([
       this.ctx.sessionQuery.listSessions(),
@@ -79,7 +80,7 @@ export default class UsageStatistics extends TypertRemoteService {
       while (header !== undefined && !visited.has(header.id)) {
         visited.add(header.id)
         if (header.cwd !== undefined) {
-          const projectId = workspaceByPath.get(header.cwd)
+          const projectId = workspaceFor(header.cwd)
           if (projectId !== undefined) return projectId
         }
         header = header.parentSession === undefined ? undefined : byId.get(header.parentSession)
@@ -147,15 +148,14 @@ export default class UsageStatistics extends TypertRemoteService {
     for (const result of results) {
       if (result === undefined) continue
       if ('issue' in result) {
-        const projectId = projectFor(result.issue.sessionId)
-        issues.push({ ...result.issue, ...(projectId === undefined ? {} : { projectId }) })
+        issues.push(withProject(result.issue, projectFor(result.issue.sessionId)))
         continue
       }
       const { session, records: ownRecords, issues: ownIssues } = result.value
       const projectId = projectFor(session.id)
-      sessions.push({ ...session, ...(projectId === undefined ? {} : { projectId }) })
+      sessions.push(withProject(session, projectId))
       records.push(...ownRecords)
-      issues.push(...ownIssues.map(issue => ({ ...issue, ...(projectId === undefined ? {} : { projectId }) })))
+      issues.push(...ownIssues.map(issue => withProject(issue, projectId)))
     }
     return {
       capturedAt: Date.now(), projects, sessions, records, issues,

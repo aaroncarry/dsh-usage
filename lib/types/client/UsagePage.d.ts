@@ -6,12 +6,16 @@ export interface UsagePageState {
     readonly snapshot?: UsageSnapshot;
     readonly error: boolean;
     readonly refreshing: boolean;
+}
+/** Transient progress of the current observation; never persisted. */
+export interface UsagePageProgress {
     readonly progress?: UsageProgress;
 }
 /** Operations and observable data supplied by the browser plugin. */
 export interface UsagePageInjected {
     readonly hooks: {
         readonly usage: HostObservable<UsagePageState>;
+        readonly progress: HostObservable<UsagePageProgress>;
     };
     readonly activate: () => () => void;
     readonly retry: () => void;
@@ -20,6 +24,6 @@ export interface UsagePageInjected {
 }
 type Props = PropsRuntime<'main'> & PropsLocale<'usageStatistics'> & InjectFace<UsagePageInjected>;
 /** Render token activity, trends, breakdowns, and session navigation. @param props - localized page services. @returns dashboard. */
-export declare function UsagePage({ useUsage, activate, retry, rebuild, openSession, t }: Props): import("react").JSX.Element;
+export declare function UsagePage({ useUsage, useProgress, activate, retry, rebuild, openSession, t }: Props): import("react").JSX.Element;
 export {};
 //# sourceMappingURL=UsagePage.d.ts.map

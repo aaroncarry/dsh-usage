@@ -9,7 +9,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { UsagePage, type UsagePageInjected, type UsagePageState } from './UsagePage.tsx'
+import { UsagePage, type UsagePageInjected, type UsagePageProgress, type UsagePageState } from './UsagePage.tsx'
 import { UsageIcon } from './UsageIcon.tsx'
 import { en, zh, type UsageLocaleKey } from './locales.ts'
 
@@ -30,6 +30,8 @@ function registerUi(ctx: Context): void {
   ctx.effect(() => ctx.locale.register('usageStatistics', { zh, en }), 'ui-usage: dictionaries')
   const t = ctx.locale.bind('usageStatistics')
   const usage = createSnapshotStore<UsagePageState>({ error: false, refreshing: false }, { persist: { name: 'dsh.usage-statistics.snapshot.v2' } })
+  // Kept out of the persisted store: every set of a persisted store re-serializes the whole snapshot.
+  const progress = createSnapshotStore<UsagePageProgress>({})
   let disposeActive: (() => void) | undefined
   let refreshActive: ((force?: boolean) => void) | undefined
   const activate = (): (() => void) => {
@@ -41,7 +43,8 @@ function registerUi(ctx: Context): void {
     const refresh = async (force = false): Promise<void> => {
       if (busy) { rerun = true; nextForce ||= force; return }
       busy = true
-      usage.set({ ...usage.getSnapshot(), refreshing: true, error: false, progress: { completed: 0, total: 0, running: true } })
+      usage.set({ ...usage.getSnapshot(), refreshing: true, error: false })
+      progress.set({ progress: { completed: 0, total: 0, running: true } })
       do {
         rerun = false
         const runForce = force || nextForce
@@ -49,17 +52,22 @@ function registerUi(ctx: Context): void {
         nextForce = false
         const timer = setInterval(() => {
           void ctx.remote.usageStatistics.progress().then(result => {
-            if (result.ok && !disposed) usage.set({ ...usage.getSnapshot(), progress: result.value })
+            if (result.ok && !disposed) progress.set({ progress: result.value })
           }).catch((_progressFailure) => { /* The final snapshot remains authoritative. */ })
         }, 500)
         try {
           const result = await ctx.remote.usageStatistics.snapshot(runForce)
           if (!result.ok) throw new Error(result.error.message)
-          if (!disposed) usage.set({ snapshot: result.value, error: false, refreshing: rerun,
-            progress: { completed: result.value.sessions.length + result.value.unreadableSessions,
-              total: result.value.sessions.length + result.value.unreadableSessions, running: rerun } })
+          if (!disposed) {
+            const count = result.value.sessions.length + result.value.unreadableSessions
+            usage.set({ snapshot: result.value, error: false, refreshing: rerun })
+            progress.set({ progress: { completed: count, total: count, running: rerun } })
+          }
         } catch (_loadFailure) {
-          if (!disposed) usage.set({ ...usage.getSnapshot(), error: true, refreshing: rerun, progress: { completed: 0, total: 0, running: false } })
+          if (!disposed) {
+            usage.set({ ...usage.getSnapshot(), error: true, refreshing: rerun })
+            progress.set({})
+          }
         } finally {
           clearInterval(timer)
         }
@@ -84,7 +92,7 @@ function registerUi(ctx: Context): void {
   }
   ctx.effect(() => () => { disposeActive?.() }, 'ui-usage: observation')
   const face: UsagePageInjected = {
-    hooks: { usage }, activate,
+    hooks: { usage, progress }, activate,
     retry: () => { refreshActive?.() },
     rebuild: () => { refreshActive?.(true) },
     openSession: (id) => { ctx.uiWorkspace.openSession(id) },

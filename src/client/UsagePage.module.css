@@ -110,8 +110,7 @@
 .sessionText small { color: var(--dsw-alias-label-secondary); }
 .sessionTotal { color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
 .empty { padding: 22px 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
-.toolbarStatus { display: flex; flex-wrap: wrap; gap: 12px; padding-bottom: 8px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
-.toolbarStatus { align-items: center; }
+.toolbarStatus { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-bottom: 8px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .toolbarStatus button, .clearDay, .qualityHead button { border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 7px; padding: 5px 9px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; font-size: 11px; cursor: pointer; }
 .toolbarStatus button:disabled, .qualityHead button:disabled { opacity: .5; cursor: default; }
 .qualityToggle { color: var(--usage-blue) !important; }
@@ -131,8 +130,7 @@
 .loading { min-height: 160px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .loading i { width: 16px; height: 16px; border: 2px solid var(--dsw-alias-border-l3); border-top-color: var(--usage-blue); border-radius: 50%; animation: usage-spin .8s linear infinite; }
 @keyframes usage-spin { to { transform: rotate(360deg); } }
-.notice { padding: 9px 12px; border-radius: 8px; margin: 0 0 14px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-size: 11px; }
-.notice { display: flex; align-items: center; justify-content: space-between; }
+.notice { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-radius: 8px; margin: 0 0 14px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-size: 11px; }
 @media (max-width: 800px) {
   .filters { width: 100%; }
   .filters label { flex: 1 1 140px; }

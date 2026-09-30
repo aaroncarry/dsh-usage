@@ -37,8 +37,14 @@ export function foldUsageSession(
     if (event.type === 'user/message' || event.type === 'assistant/message' || event.type === 'turn/end') {
       lastAt = Math.max(lastAt, event.time)
     }
-    if (event.type === 'turn/start') turn = [event]
-    else if (turn.length > 0) turn.push(event)
+    if (event.type === 'turn/start') {
+      // A turn replaced before its `turn/end` was interrupted, so its usage is unknown.
+      if (turn.length > 0) {
+        missingTurns++
+        issues.push({ kind: 'missing-turn', sessionId: header.id, title, at: event.time })
+      }
+      turn = [event]
+    } else if (turn.length > 0) turn.push(event)
     if (event.type !== 'turn/end' || turn.length === 0) continue
     const usage = deriveTurnTokenUsage(turn)
     if (usage === undefined) {
