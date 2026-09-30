@@ -2,13 +2,18 @@
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { UsageIssue, UsageRecord, UsageSession, UsageSnapshot } from '@deepseek-ai/dsh-client-ui-usage/types'
 
-export type Period = 1 | 7 | 30 | 90 | 365
+export type Period = 7 | 30 | 90 | 365
+/** Inclusive local-calendar day range; both ends are midnights. */
+export type DayRange = { readonly first: number; readonly last: number }
 export type SessionMode = 'high' | 'recent'
 export type Rank = { name: string; total: number }
 
 /** User-selected scope of the dashboard. */
 export interface Filters {
-  readonly period: Period
+  readonly period: Period | 'custom'
+  /** Used when `period` is `custom`. */
+  readonly custom: DayRange
+  /** A heatmap day selection overrides the period. */
   readonly selectedDay: number | undefined
   readonly project: string
   readonly model: string
@@ -34,6 +39,50 @@ export function dayStart(time: number): number {
 export function shiftDay(time: number, days: number): number {
   const date = new Date(time)
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days).getTime()
+}
+
+/** Number of calendar days in an inclusive range, counted by local dates so DST changes do not skew it. */
+export function dayCount(range: DayRange): number {
+  let count = 1
+  for (let day = range.first; day < range.last; day = shiftDay(day, 1)) count++
+  return count
+}
+
+/** Order a possibly reversed pair of days into an inclusive range. */
+export function orderedRange(a: number, b: number): DayRange {
+  return a <= b ? { first: a, last: b } : { first: b, last: a }
+}
+
+/** Token and turn totals per weekday (Monday first) and local hour. */
+export interface HourlyDistribution {
+  /** `tokens[weekday][hour]`, weekday 0 = Monday. */
+  readonly tokens: readonly (readonly number[])[]
+  readonly turns: readonly (readonly number[])[]
+  readonly max: number
+  /** Busiest slot, absent when there is no usage. */
+  readonly peak?: { readonly weekday: number; readonly hour: number; readonly tokens: number }
+  /** Tokens per hour of day across all weekdays. */
+  readonly byHour: readonly number[]
+}
+
+/** Bucket usage by the local weekday and hour its turn ended. */
+export function hourlyDistribution(records: readonly UsageRecord[]): HourlyDistribution {
+  const tokens = Array.from({ length: 7 }, () => new Array<number>(24).fill(0))
+  const turns = Array.from({ length: 7 }, () => new Array<number>(24).fill(0))
+  const byHour = new Array<number>(24).fill(0)
+  for (const record of records) {
+    const date = new Date(record.at)
+    const weekday = (date.getDay() + 6) % 7
+    const hour = date.getHours()
+    tokens[weekday]![hour]! += record.totalTokens
+    turns[weekday]![hour]!++
+    byHour[hour]! += record.totalTokens
+  }
+  let peak: HourlyDistribution['peak']
+  tokens.forEach((row, weekday) => row.forEach((value, hour) => {
+    if (value > 0 && (peak === undefined || value > peak.tokens)) peak = { weekday, hour, tokens: value }
+  }))
+  return { tokens, turns, byHour, max: peak?.tokens ?? 0, ...(peak === undefined ? {} : { peak }) }
 }
 
 /** Prompt-side tokens of one record: uncached, cache read, and cache write input. */
@@ -102,13 +151,16 @@ function dominantRoute(records: readonly UsageRecord[], unknown: string): string
  * @returns immutable view model; recompute only when an input changes.
  */
 export function deriveDashboard(snapshot: UsageSnapshot, filters: Filters, unknown: string) {
-  const { period, selectedDay, project, model, trendModel, efficiencyModel, sessionMode } = filters
+  const { period, custom, selectedDay, project, model, trendModel, efficiencyModel, sessionMode } = filters
   const today = dayStart(snapshot.capturedAt)
-  const anchor = selectedDay ?? today
-  const daysInView: Period = selectedDay === undefined ? period : 1
-  const start = shiftDay(anchor, 1 - daysInView)
-  const end = shiftDay(anchor, 1)
-  const previousStart = shiftDay(anchor, 1 - 2 * daysInView)
+  const range: DayRange = selectedDay !== undefined ? { first: selectedDay, last: selectedDay }
+    : period === 'custom' ? custom : { first: shiftDay(today, 1 - period), last: today }
+  const anchor = range.last
+  const daysInView = dayCount(range)
+  const start = range.first
+  const end = shiftDay(range.last, 1)
+  // The comparison period has the same length and ends the day before this one starts.
+  const previousStart = shiftDay(range.first, -daysInView)
   const sessionById = new Map(snapshot.sessions.map(session => [session.id, session]))
   const projectById = new Map(snapshot.projects.map(item => [item.id, item.title]))
 
@@ -162,7 +214,8 @@ export function deriveDashboard(snapshot: UsageSnapshot, filters: Filters, unkno
   }))
 
   return {
-    today, anchor, daysInView, start, end, projectById,
+    today, range, anchor, daysInView, start, end, projectById,
+    hourly: hourlyDistribution(selected),
     models, scoped, selected, trendModels, activeTrendModel, trendRecords, activeEfficiencyModel, efficiencyRecords,
     total, prior, peak, priorPeak, activeDays: dayTotals.length, priorActiveDays: priorDays.length,
     cacheRate, cacheRateDelta: cacheRate === undefined || previousCacheRate === undefined ? undefined : cacheRate - previousCacheRate,
@@ -180,6 +233,7 @@ export function deriveDashboard(snapshot: UsageSnapshot, filters: Filters, unkno
     modelRows: grouped(selected, record => record.model ?? unknown),
     providerRows: grouped(selected, record => record.provider ?? unknown),
     projectRows: grouped(selected, record => projectById.get(sessionById.get(record.sessionId)?.projectId ?? '') ?? unknown),
+    earliestDay: dayStart(snapshot.records.reduce((earliest, record) => Math.min(earliest, record.at), today)),
     heatYears: [...new Set([new Date(today).getFullYear(), ...snapshot.records.map(record => new Date(record.at).getFullYear())])]
       .sort((a, b) => b - a),
     sessions,

@@ -22,3 +22,25 @@ test('formatters follow the DSH locale, not the browser', () => {
   assert.match(formattersFor('en').dayShort(march), /Mar 5/)
   assert.equal(formattersFor('zh'), formattersFor('zh'), 'cached per locale')
 })
+
+import { heatLevel, isoDay, parseIsoDay } from '../src/client/format.ts'
+
+test('heatLevel uses a square-root scale and keeps any usage visible', () => {
+  assert.equal(heatLevel(0, 100), 0)
+  assert.equal(heatLevel(1, 1_000_000), 1)
+  assert.equal(heatLevel(25, 100), 2)
+  assert.equal(heatLevel(100, 100), 4)
+})
+
+test('isoDay and parseIsoDay round-trip local days and reject bad input', () => {
+  const day = new Date(2026, 8, 5).getTime()
+  assert.equal(isoDay(day), '2026-09-05')
+  assert.equal(parseIsoDay('2026-09-05'), day)
+  assert.equal(parseIsoDay(''), undefined)
+  assert.equal(parseIsoDay('2026-02-30'), undefined)
+})
+
+test('weekday names start on Monday', () => {
+  assert.equal(formattersFor('en').weekday(0), 'Mon')
+  assert.equal(formattersFor('zh').weekday(6), '周日')
+})

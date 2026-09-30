@@ -88,6 +88,13 @@ export declare const zh: {
     readonly openSession: "打开会话";
     readonly noPrior: "上一周期无数据";
     readonly cacheUnknown: "部分轮次未报告缓存";
+    readonly customRange: "自定义范围";
+    readonly rangeStart: "开始日期";
+    readonly rangeEnd: "结束日期";
+    readonly hourly: "时段分布";
+    readonly hourlyNote: "按星期与小时统计 Token";
+    readonly peakHour: "高峰时段";
+    readonly hourTotal: "各小时合计";
 };
 /** English fallback dictionary. */
 export declare const en: Record<keyof typeof zh, string>;

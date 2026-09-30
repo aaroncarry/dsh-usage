@@ -21,6 +21,8 @@ export const zh = {
   sessions: '会话 Top 10', highUsage: '高用量', recent: '最近聊天', lastChat: '最近聊天',
   unknown: '未归属', other: '其他', noData: '所选范围暂无 Token 用量', missing: '部分会话的用量未知',
   tokenUnit: 'Token', openSession: '打开会话', noPrior: '上一周期无数据', cacheUnknown: '部分轮次未报告缓存',
+  customRange: '自定义范围', rangeStart: '开始日期', rangeEnd: '结束日期',
+  hourly: '时段分布', hourlyNote: '按星期与小时统计 Token', peakHour: '高峰时段', hourTotal: '各小时合计',
 } as const
 
 /** English fallback dictionary. */
@@ -46,6 +48,8 @@ export const en: Record<keyof typeof zh, string> = {
   sessions: 'Top 10 sessions', highUsage: 'High usage', recent: 'Recent chats', lastChat: 'Last chat',
   unknown: 'Unattributed', other: 'Other', noData: 'No token usage in this period', missing: 'Some session usage is unknown',
   tokenUnit: 'tokens', openSession: 'Open session', noPrior: 'No data in previous period', cacheUnknown: 'Some turns omit cache counts',
+  customRange: 'Custom range', rangeStart: 'Start date', rangeEnd: 'End date',
+  hourly: 'Activity by hour', hourlyNote: 'Tokens by weekday and hour', peakHour: 'Peak hour', hourTotal: 'All days by hour',
 }
 
 /** Locale keys available to this plugin. */

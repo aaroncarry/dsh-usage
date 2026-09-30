@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Add this bundle to a Desktop profile to open **Usage** from the left sidebar. It shows an activity heatmap with a rolling-year or calendar-year view and date selection; input-token and efficiency trends; input and output composition; model, project, and provider shares; and high-usage or recent-chat Top 10 sessions. Charts show exact values on hover. The page shows its last saved observation while refreshing after a restart. The dashboard reads provider-reported usage in durable session logs; its data-quality panel separates unreadable sessions, turns without complete usage, and turns without one model or provider. Install or remove the bundle through `dsh plugin` without changing the Desktop application package.
+Add this bundle to a Desktop profile to open **Usage** from the left sidebar. It covers preset periods or a custom date range, and shows an activity heatmap with a rolling-year or calendar-year view and date selection; a weekday-by-hour activity distribution; input-token and efficiency trends; input and output composition; model, project, and provider shares; and high-usage or recent-chat Top 10 sessions. Charts show exact values on hover. The page shows its last saved observation while refreshing after a restart. The dashboard reads provider-reported usage in durable session logs; its data-quality panel separates unreadable sessions, turns without complete usage, and turns without one model or provider. Install or remove the bundle through `dsh plugin` without changing the Desktop application package.
 
 ## Table of Contents
 

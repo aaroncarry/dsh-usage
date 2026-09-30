@@ -1,5 +1,10 @@
 import type { UsageIssue, UsageRecord, UsageSession, UsageSnapshot } from '@deepseek-ai/dsh-client-ui-usage/types';
-export type Period = 1 | 7 | 30 | 90 | 365;
+export type Period = 7 | 30 | 90 | 365;
+/** Inclusive local-calendar day range; both ends are midnights. */
+export type DayRange = {
+    readonly first: number;
+    readonly last: number;
+};
 export type SessionMode = 'high' | 'recent';
 export type Rank = {
     name: string;
@@ -7,7 +12,10 @@ export type Rank = {
 };
 /** User-selected scope of the dashboard. */
 export interface Filters {
-    readonly period: Period;
+    readonly period: Period | 'custom';
+    /** Used when `period` is `custom`. */
+    readonly custom: DayRange;
+    /** A heatmap day selection overrides the period. */
     readonly selectedDay: number | undefined;
     readonly project: string;
     readonly model: string;
@@ -25,6 +33,27 @@ export interface RankedSession {
 export declare function dayStart(time: number): number;
 /** Move a local-calendar midnight by whole days, honoring DST. */
 export declare function shiftDay(time: number, days: number): number;
+/** Number of calendar days in an inclusive range, counted by local dates so DST changes do not skew it. */
+export declare function dayCount(range: DayRange): number;
+/** Order a possibly reversed pair of days into an inclusive range. */
+export declare function orderedRange(a: number, b: number): DayRange;
+/** Token and turn totals per weekday (Monday first) and local hour. */
+export interface HourlyDistribution {
+    /** `tokens[weekday][hour]`, weekday 0 = Monday. */
+    readonly tokens: readonly (readonly number[])[];
+    readonly turns: readonly (readonly number[])[];
+    readonly max: number;
+    /** Busiest slot, absent when there is no usage. */
+    readonly peak?: {
+        readonly weekday: number;
+        readonly hour: number;
+        readonly tokens: number;
+    };
+    /** Tokens per hour of day across all weekdays. */
+    readonly byHour: readonly number[];
+}
+/** Bucket usage by the local weekday and hour its turn ended. */
+export declare function hourlyDistribution(records: readonly UsageRecord[]): HourlyDistribution;
 /** Prompt-side tokens of one record: uncached, cache read, and cache write input. */
 export declare function inputOf(record: UsageRecord): number;
 /** Sum total tokens per key, largest first. */
@@ -51,11 +80,13 @@ export declare function streaks(days: Iterable<number>, first: number, last: num
  */
 export declare function deriveDashboard(snapshot: UsageSnapshot, filters: Filters, unknown: string): {
     today: number;
+    range: DayRange;
     anchor: number;
-    daysInView: Period;
+    daysInView: number;
     start: number;
     end: number;
     projectById: Map<string, string>;
+    hourly: HourlyDistribution;
     models: string[];
     scoped: readonly UsageRecord[];
     selected: UsageRecord[];
@@ -90,6 +121,7 @@ export declare function deriveDashboard(snapshot: UsageSnapshot, filters: Filter
     modelRows: Rank[];
     providerRows: Rank[];
     projectRows: Rank[];
+    earliestDay: number;
     heatYears: number[];
     sessions: RankedSession[];
 };

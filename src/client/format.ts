@@ -12,6 +12,8 @@ export interface Formatters {
   readonly dayNumeric: (time: number) => string
   readonly month: (time: number) => string
   readonly dateTime: (time: number) => string
+  /** Short weekday name; 0 = Monday. */
+  readonly weekday: (index: number) => string
 }
 
 const cache = new Map<string, Formatters>()
@@ -47,6 +49,8 @@ export function formattersFor(locale: string): Formatters {
     dayNumeric: date({ year: 'numeric', month: 'numeric', day: 'numeric' }),
     month: date({ month: 'short' }),
     dateTime: date({ month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+    // 2024-01-01 was a Monday.
+    weekday: (weekdays => (index: number) => weekdays(new Date(2024, 0, 1 + index)))(date({ weekday: 'short' })),
   }
   cache.set(locale, value)
   return value
@@ -67,6 +71,31 @@ export function niceScale(maximum: number, integer = false): { top: number; tick
   if (integer) step = Math.max(1, Math.ceil(step))
   const count = Math.max(1, Math.ceil(maximum / step - 1e-9))
   return { top: step * count, ticks: Array.from({ length: count + 1 }, (_, index) => step * index) }
+}
+
+/**
+ * Map a value to one of five heat levels on a square-root scale, so ordinary values stay
+ * visible next to a single extreme peak.
+ * @returns 0 for no usage, otherwise 1–4.
+ */
+export function heatLevel(value: number, max: number): 0 | 1 | 2 | 3 | 4 {
+  if (value <= 0 || max <= 0) return 0
+  return Math.min(4, Math.max(1, Math.ceil(Math.sqrt(value / max) * 4))) as 1 | 2 | 3 | 4
+}
+
+/** `YYYY-MM-DD` for a local-calendar day, as used by `<input type="date">`. */
+export function isoDay(time: number): string {
+  const date = new Date(time)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+/** Local midnight for a `YYYY-MM-DD` value, or undefined when it is empty or malformed. */
+export function parseIsoDay(value: string): number | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (match === null) return undefined
+  const [, year, month, day] = match.map(Number) as [number, number, number, number]
+  const date = new Date(year, month - 1, day)
+  return date.getMonth() === month - 1 && date.getDate() === day ? date.getTime() : undefined
 }
 
 /** Evenly spaced indexes into `length` points, always including both ends. */

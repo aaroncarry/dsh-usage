@@ -34,6 +34,9 @@
 .select:focus-visible, .button:focus-visible, .linkButton:focus-visible, .clearDay:focus-visible, .segments button:focus-visible { outline: 2px solid var(--usage-blue); outline-offset: 1px; }
 .periodGroup { display: inline-flex; align-items: center; gap: 4px; }
 .selectActive { border-color: var(--usage-blue); color: var(--usage-blue); background: color-mix(in srgb, var(--usage-blue) 6%, var(--dsw-alias-bg-layer-1)); }
+.dateRange { display: inline-flex; align-items: center; gap: 4px; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+.dateInput { height: var(--usage-control-height); padding: 0 8px; box-sizing: border-box; border: 0.5px solid var(--usage-blue); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; color-scheme: light dark; }
+.dateInput:focus-visible { outline: 2px solid var(--usage-blue); outline-offset: 1px; }
 .clearDay { width: var(--usage-control-height); height: var(--usage-control-height); padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; cursor: pointer; }
 .clearDay:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
 .status { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px 10px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
@@ -113,6 +116,19 @@
 .efficiencyStats > button.metricActive { border-color: var(--usage-input); background: color-mix(in srgb, var(--usage-input) 8%, var(--dsw-alias-bg-layer-1)); }
 .efficiencyStats span { color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .efficiencyStats strong { font-size: 17px; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* Weekday × hour distribution */
+.hourlyPeak { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.hourlyPeak strong { color: var(--dsw-alias-label-primary); font-weight: 500; font-variant-numeric: tabular-nums; }
+.hourly { display: grid; grid-template-columns: 32px repeat(24, minmax(10px, 1fr)); gap: 3px; margin-top: 18px; }
+.hourRow { display: contents; }
+.hourLabel { color: var(--dsw-alias-label-secondary); font-size: 10px; font-variant-numeric: tabular-nums; }
+.weekdayLabel { display: flex; align-items: center; color: var(--dsw-alias-label-secondary); font-size: 10px; }
+.hourCell { display: block; height: 18px; border-radius: 3px; }
+.hourCell:hover { outline: 2px solid var(--usage-blue); outline-offset: 1px; }
+.hourBar { display: flex; align-items: flex-end; height: 32px; margin-top: 6px; }
+.hourBar > i { display: block; width: 100%; min-height: 1px; border-radius: 2px 2px 0 0; background: color-mix(in srgb, var(--usage-blue) 55%, var(--dsw-alias-bg-layer-2)); }
+.hourBar:hover > i { background: var(--usage-blue); }
 
 /* Breakdown cards */
 .twoCols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }

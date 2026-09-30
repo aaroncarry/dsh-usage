@@ -4,8 +4,8 @@ import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@dee
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { UsageIssue, UsageProgress, UsageRecord, UsageSnapshot } from '@deepseek-ai/dsh-client-ui-usage/types'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
-import { deriveDashboard, dayStart, shiftDay, streaks, type Period, type Rank, type SessionMode } from './derive.ts'
-import { formattersFor, niceScale, spreadIndexes, type Formatters } from './format.ts'
+import { deriveDashboard, dayStart, orderedRange, shiftDay, streaks, type DayRange, type HourlyDistribution, type Period, type Rank, type SessionMode } from './derive.ts'
+import { formattersFor, heatLevel, isoDay, niceScale, parseIsoDay, spreadIndexes, type Formatters } from './format.ts'
 import css from './UsagePage.module.css'
 
 /** Dashboard observation shared with the page while it is mounted. */
@@ -75,15 +75,15 @@ function ProgressCount({ useProgress, prefix }: { useProgress: Props['useProgres
   return <>{progress?.total ? `${prefix}${progress.completed}/${progress.total}` : ''}</>
 }
 
-function TrendChart({ records, period, anchorAt, mode, metric, label, fmt, t }: {
-  records: readonly UsageRecord[]; period: Period; anchorAt: number; mode: Trend; metric: ChartMetric; label: string; fmt: Formatters; t: Props['t']
+function TrendChart({ records, days, anchorAt, mode, metric, label, fmt, t }: {
+  records: readonly UsageRecord[]; days: number; anchorAt: number; mode: Trend; metric: ChartMetric; label: string; fmt: Formatters; t: Props['t']
 }) {
   const [hovered, setHovered] = useState<number | undefined>()
   const gradientId = useId()
   const anchor = dayStart(anchorAt)
   type Point = { at: number; endAt: number; input: number; turns: number; cacheRead: number; cacheKnown: boolean }
   const data: Point[] = []
-  for (let offset = period - 1; offset >= 0; offset--) {
+  for (let offset = days - 1; offset >= 0; offset--) {
     const at = shiftDay(anchor, -offset)
     data.push({ at, endAt: at, input: 0, turns: 0, cacheRead: 0, cacheKnown: true })
   }
@@ -243,7 +243,13 @@ function Heatmap({ records, years, year, today, selectedDay, onYearChange, onSel
   const scroller = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const element = scroller.current
-    if (element !== null) element.scrollLeft = element.scrollWidth
+    if (element === null) return
+    const toLatest = () => { element.scrollLeft = element.scrollWidth }
+    toLatest()
+    // Resizing the window or sidebar can start the overflow after the first render.
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(toLatest)
+    observer?.observe(element)
+    return () => { observer?.disconnect() }
   }, [weeks, year])
   // Exactly one cell is a tab stop; fall back to the range's last day when the selection or today is outside it.
   const tabStop = selectedDay !== undefined && selectedDay >= first && selectedDay <= lastShown ? selectedDay : lastShown
@@ -258,8 +264,7 @@ function Heatmap({ records, years, year, today, selectedDay, onYearChange, onSel
       {months.map((month, index) => <span key={index}>{month}</span>)}
     </div><div className={css.heatmap} style={size}>
       {Array.from({ length: weeks }, (_, week) => <div className={css.heatWeek} key={week}>{cells.slice(week * 7, week * 7 + 7).map((cell, day) => {
-        // Square-root scale keeps ordinary days visible next to a single extreme peak.
-        const level = cell.total === 0 ? 0 : Math.min(4, Math.max(1, Math.ceil(Math.sqrt(cell.total / max) * 4)))
+        const level = heatLevel(cell.total, max)
         const detail = `${fmt.dayLong(cell.at)}\n${fmt.integer(cell.total)} ${t('tokenUnit')}`
         return <Tooltip key={day} label={detail} side="top" portal delayMs={80} disabled={!cell.visible}>
           <span className={`${css.heatCell} ${cell.visible ? css[`heat${level}`] : cell.future ? css.heatFuture : css.heatHidden} ${selectedDay === cell.at ? css.heatSelected : ''}`}
@@ -281,6 +286,34 @@ function Heatmap({ records, years, year, today, selectedDay, onYearChange, onSel
       })}</div>)}
     </div></div>
     <div className={css.heatFoot}><span>{lastShown === today && <>{t('currentStreak')} <strong>{streak.current} {t('days')}</strong> · </>}{t('longestStreak')} <strong>{streak.longest} {t('days')}</strong></span><span>{t('less')} <i className={css.heat0} /><i className={css.heat1} /><i className={css.heat2} /><i className={css.heat3} /><i className={css.heat4} /> {t('more')}</span></div>
+  </section>
+}
+
+function HourlyCard({ hourly, fmt, t }: { hourly: HourlyDistribution; fmt: Formatters; t: Props['t'] }) {
+  const slot = (hour: number) => `${String(hour).padStart(2, '0')}:00–${String(hour + 1).padStart(2, '0')}:00`
+  const hourMax = Math.max(1, ...hourly.byHour)
+  const { peak } = hourly
+  return <section className={css.card}>
+    <div className={css.cardHead}><div><h2>{t('hourly')}</h2><p>{t('hourlyNote')}</p></div>
+      {peak && <p className={css.hourlyPeak}>{t('peakHour')} <strong>{fmt.weekday(peak.weekday)} {slot(peak.hour)}</strong> · {fmt.amount(peak.tokens)} {t('tokenUnit')}</p>}
+    </div>
+    {hourly.max === 0 ? <p className={css.empty}>{t('noData')}</p> : <div className={css.hourly}>
+      <span />
+      {Array.from({ length: 24 }, (_, hour) => <span key={hour} className={css.hourLabel}>{hour % 3 === 0 ? hour : ''}</span>)}
+      {hourly.tokens.map((row, weekday) => <div key={weekday} className={css.hourRow}>
+        <span className={css.weekdayLabel}>{fmt.weekday(weekday)}</span>
+        {row.map((value, hour) => {
+          const detail = `${fmt.weekday(weekday)} ${slot(hour)}\n${fmt.integer(value)} ${t('tokenUnit')} · ${fmt.integer(hourly.turns[weekday]?.[hour] ?? 0)} ${t('turns')}`
+          return <Tooltip key={hour} label={detail} side="top" portal delayMs={80}>
+            <span className={`${css.hourCell} ${css[`heat${heatLevel(value, hourly.max)}`]}`} aria-label={detail} role="img" />
+          </Tooltip>
+        })}
+      </div>)}
+      <span className={css.weekdayLabel} title={t('hourTotal')}>Σ</span>
+      {hourly.byHour.map((value, hour) => <Tooltip key={hour} label={`${slot(hour)}\n${fmt.integer(value)} ${t('tokenUnit')}`} side="top" portal delayMs={80}>
+        <span className={css.hourBar}><i style={{ height: `${value / hourMax * 100}%` }} /></span>
+      </Tooltip>)}
+    </div>}
   </section>
 }
 
@@ -387,7 +420,8 @@ export function UsagePage({ useUsage, useProgress, activate, retry, rebuild, ope
   const snapshot = useUsage(state => state.snapshot)
   const error = useUsage(state => state.error)
   const refreshing = useUsage(state => state.refreshing)
-  const [period, setPeriod] = useState<Period>(30)
+  const [period, setPeriod] = useState<Period | 'custom'>(30)
+  const [custom, setCustom] = useState<DayRange | undefined>()
   const [selectedDay, setSelectedDay] = useState<number | undefined>()
   const [heatYear, setHeatYear] = useState<number | 'rolling'>('rolling')
   const [qualityOpen, setQualityOpen] = useState(false)
@@ -403,9 +437,15 @@ export function UsagePage({ useUsage, useProgress, activate, retry, rebuild, ope
 
   const fmt = formattersFor(locale())
   const unknown = t('unknown')
+  const today = snapshot === undefined ? dayStart(Date.now()) : dayStart(snapshot.capturedAt)
+  const customRange = custom ?? { first: shiftDay(today, -29), last: today }
   const view = useMemo(() => snapshot === undefined ? undefined : deriveDashboard(
-    snapshot, { period, selectedDay, project, model, trendModel, efficiencyModel, sessionMode }, unknown,
-  ), [snapshot, period, selectedDay, project, model, trendModel, efficiencyModel, sessionMode, unknown])
+    snapshot, { period, custom: customRange, selectedDay, project, model, trendModel, efficiencyModel, sessionMode }, unknown,
+  ), [snapshot, period, customRange.first, customRange.last, selectedDay, project, model, trendModel, efficiencyModel, sessionMode, unknown])
+  const setCustomEnd = (end: 'first' | 'last', value: string) => {
+    const day = parseIsoDay(value)
+    if (day !== undefined) setCustom(orderedRange(day, end === 'first' ? customRange.last : customRange.first))
+  }
   const efficiencyLabel = efficiencyMetric === 'turns' ? t('completedTurns')
     : efficiencyMetric === 'averageInput' ? t('averageInputPerTurn') : t('cacheReadShare')
   const issueCount = view === undefined ? 0 : view.unreadable + view.missing + view.unattributed
@@ -416,10 +456,23 @@ export function UsagePage({ useUsage, useProgress, activate, retry, rebuild, ope
       {snapshot && view && <div className={css.headControls}>
         <div className={css.filters}>
           <span className={css.periodGroup}>
-            <select className={`${css.select} ${selectedDay === undefined ? '' : css.selectActive}`} aria-label={t('period')} value={selectedDay === undefined ? period : 'selected'} onChange={(event) => { setSelectedDay(undefined); setPeriod(Number(event.target.value) as Period); setTrendModel('') }}>
+            <select className={`${css.select} ${selectedDay === undefined ? '' : css.selectActive}`} aria-label={t('period')} value={selectedDay === undefined ? period : 'selected'} onChange={(event) => {
+              const value = event.target.value
+              setSelectedDay(undefined)
+              setPeriod(value === 'custom' ? 'custom' : Number(value) as Period)
+              setTrendModel('')
+            }}>
               {selectedDay !== undefined && <option value="selected">{fmt.dayNumeric(selectedDay)}</option>}
               <option value={7}>{t('days7')}</option><option value={30}>{t('days30')}</option><option value={90}>{t('days90')}</option><option value={365}>{t('days365')}</option>
+              <option value="custom">{t('customRange')}</option>
             </select>
+            {period === 'custom' && selectedDay === undefined && <span className={css.dateRange}>
+              <input type="date" className={css.dateInput} aria-label={t('rangeStart')} value={isoDay(customRange.first)}
+                min={isoDay(view.earliestDay)} max={isoDay(today)} onChange={event => { setCustomEnd('first', event.target.value) }} />
+              <span aria-hidden="true">–</span>
+              <input type="date" className={css.dateInput} aria-label={t('rangeEnd')} value={isoDay(customRange.last)}
+                min={isoDay(view.earliestDay)} max={isoDay(today)} onChange={event => { setCustomEnd('last', event.target.value) }} />
+            </span>}
             {selectedDay !== undefined && <button className={css.clearDay} onClick={() => { setSelectedDay(undefined) }} title={t('clearDay')} aria-label={t('clearDay')}>✕</button>}
           </span>
           <select className={css.select} aria-label={t('project')} value={project} onChange={(event) => { setProject(event.target.value); setModel(''); setTrendModel('') }}>
@@ -473,7 +526,7 @@ export function UsagePage({ useUsage, useProgress, activate, retry, rebuild, ope
         </select>
         <Segments modes={['daily', 'weekly', 'cumulative'] as const} value={trend} onChange={setTrend} label={t} />
       </div></div>
-        {view.trendRecords.length ? <TrendChart records={view.trendRecords} period={view.daysInView} anchorAt={view.anchor} mode={trend} metric="input" label={`${t('input')} · ${view.activeTrendModel || t('allModels')}`} fmt={fmt} t={t} /> : <p className={css.empty}>{t('noData')}</p>}
+        {view.trendRecords.length ? <TrendChart records={view.trendRecords} days={view.daysInView} anchorAt={view.anchor} mode={trend} metric="input" label={`${t('input')} · ${view.activeTrendModel || t('allModels')}`} fmt={fmt} t={t} /> : <p className={css.empty}>{t('noData')}</p>}
       </section>
       <section className={css.card}>
         <div className={css.cardHead}><div><h2>{t('efficiency')}</h2><p>{t('efficiencyNote')}</p></div><div className={css.cardControls}>
@@ -493,10 +546,11 @@ export function UsagePage({ useUsage, useProgress, activate, retry, rebuild, ope
           </button>)}
           <div><Tooltip label={t('coverageExplanation')} side="top" portal><span>{t('measuredCoverage')} ⓘ</span></Tooltip><strong>{percent(view.coverage)}</strong></div>
         </div>
-        {view.efficiencyRecords.length ? <TrendChart records={view.efficiencyRecords} period={view.daysInView} anchorAt={view.anchor} mode={efficiencyMode} metric={efficiencyMetric}
+        {view.efficiencyRecords.length ? <TrendChart records={view.efficiencyRecords} days={view.daysInView} anchorAt={view.anchor} mode={efficiencyMode} metric={efficiencyMetric}
           label={`${efficiencyLabel} · ${view.activeEfficiencyModel || t('allModels')}`} fmt={fmt} t={t} />
           : <p className={css.empty}>{t('noData')}</p>}
       </section>
+      <HourlyCard hourly={view.hourly} fmt={fmt} t={t} />
       <div className={css.twoCols}>
         <section className={css.card}><h2>{t('composition')}</h2><div className={css.composition}>
           {([
