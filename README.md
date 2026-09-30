@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Add this bundle to a Desktop profile to open **Usage** from the left sidebar. It covers preset periods or a custom date range, and shows an activity heatmap with a rolling-year or calendar-year view and date selection; a weekday-by-hour activity distribution; input-token and efficiency trends; input and output composition; model, project, and provider shares; and high-usage or recent-chat Top 10 sessions. Charts show exact values on hover. The page shows its last saved observation while refreshing after a restart. The dashboard reads provider-reported usage in durable session logs; its data-quality panel separates unreadable sessions, turns without complete usage, and turns without one model or provider. Install or remove the bundle through `dsh plugin` without changing the Desktop application package.
+Add this bundle to a Desktop profile to open **Usage** from the left sidebar. It covers preset periods or a custom date range, and shows an activity heatmap with a rolling-year or calendar-year view and date selection; a weekday-by-hour activity distribution; a per-model stacked usage trend with daily, weekly, and cumulative views; input and output composition; model, project, and provider shares; and high-usage or recent-chat Top 10 sessions. Charts show exact values on hover. The page shows its last saved observation while refreshing after a restart. The dashboard reads provider-reported usage in durable session logs; its data-quality panel separates unreadable sessions, turns without complete usage, and turns without one model or provider. Install or remove the bundle through `dsh plugin` without changing the Desktop application package.
 
 ## Table of Contents
 
@@ -87,7 +87,6 @@ None. Reading usage does not enter a model request.
 
 - Provider/model share can contain **Unattributed** when a completed turn contains multiple routes or an attempt has no route. Cache hit rate is unavailable when selected records omit cache counters.
 - The Host verifies each available session log after a restart. Very large histories can make the first verification slow; the saved observation can lag until it finishes. The view refreshes after a session finishes, is added or removed, or the connection resets.
-- Measurable turn coverage excludes unreadable sessions because their missing-turn count is unknown. It is unavailable while filtering to one model because an incomplete turn cannot be attributed reliably. Cache-read share is unavailable when selected complete turns omit cache counters.
 - Project attribution matches a session's working directory to the deepest registered Workspace containing it (separators, trailing slashes, and, on Windows and macOS, letter case are ignored), then falls back to parent-session ancestry. Sessions outside registered Workspaces appear under **Unattributed**.
 
 <a id="dev-note"></a>

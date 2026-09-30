@@ -1,10 +1,13 @@
 /** Interactive charts over one Host observation of durable token usage. */
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { UsageIssue, UsageProgress, UsageRecord, UsageSnapshot } from '@deepseek-ai/dsh-client-ui-usage/types'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
-import { deriveDashboard, dayStart, orderedRange, shiftDay, streaks, type DayRange, type HourlyDistribution, type Period, type Rank, type SessionMode } from './derive.ts'
+import {
+  deriveDashboard, dayStart, orderedRange, shiftDay, streaks, topWithOther, trendBuckets,
+  type DayRange, type HourlyDistribution, type Period, type Rank, type SessionMode, type TrendBucket, type TrendMode,
+} from './derive.ts'
 import { formattersFor, heatLevel, isoDay, niceScale, parseIsoDay, spreadIndexes, type Formatters } from './format.ts'
 import css from './UsagePage.module.css'
 
@@ -35,17 +38,10 @@ export interface UsagePageInjected {
 }
 
 type Props = PropsRuntime<'main'> & PropsLocale<'usageStatistics'> & InjectFace<UsagePageInjected>
-type Trend = 'daily' | 'weekly' | 'cumulative'
-type ChartMetric = 'input' | 'turns' | 'averageInput' | 'cacheRate'
 const MODEL_COLORS = Array.from({ length: 6 }, (_, index) => `var(--usage-model-${index})`)
 const PROJECT_COLORS = Array.from({ length: 6 }, (_, index) => `var(--usage-project-${index})`)
 const PROVIDER_COLORS = Array.from({ length: 6 }, (_, index) => `var(--usage-provider-${index})`)
 const COMPOSITION_COLORS = Array.from({ length: 5 }, (_, index) => `var(--usage-composition-${index})`)
-// Chart geometry in viewBox units: plot spans x 68–758 and y 30–150; date labels sit below.
-const PLOT_LEFT = 68
-const PLOT_WIDTH = 690
-const PLOT_BOTTOM = 150
-const PLOT_HEIGHT = 120
 
 function percent(value: number | undefined): string {
   return value === undefined ? '—' : `${value.toFixed(1)}%`
@@ -75,123 +71,134 @@ function ProgressCount({ useProgress, prefix }: { useProgress: Props['useProgres
   return <>{progress?.total ? `${prefix}${progress.completed}/${progress.total}` : ''}</>
 }
 
-function TrendChart({ records, days, anchorAt, mode, metric, label, fmt, t }: {
-  records: readonly UsageRecord[]; days: number; anchorAt: number; mode: Trend; metric: ChartMetric; label: string; fmt: Formatters; t: Props['t']
+// Stacked trend geometry in viewBox units; date labels sit below the plot.
+const TREND = { width: 790, height: 224, left: 56, right: 776, top: 18, bottom: 190 } as const
+const TREND_PLOT_WIDTH = TREND.right - TREND.left
+const TREND_PLOT_HEIGHT = TREND.bottom - TREND.top
+
+/** Bar outline with rounded top corners only, so a stack reads as one column. */
+function roundedTop(x: number, y: number, width: number, height: number, radius: number): string {
+  const r = Math.max(0, Math.min(radius, width / 2, height))
+  return `M${x} ${y + height}V${y + r}Q${x} ${y} ${x + r} ${y}H${x + width - r}Q${x + width} ${y} ${x + width} ${y + r}V${y + height}Z`
+}
+
+function StackedTrend({ buckets, series, colors, mode, fmt, t }: {
+  buckets: readonly TrendBucket[]
+  series: readonly Rank[]
+  colors: readonly string[]
+  mode: TrendMode
+  fmt: Formatters
+  t: Props['t']
 }) {
   const [hovered, setHovered] = useState<number | undefined>()
-  const gradientId = useId()
-  const anchor = dayStart(anchorAt)
-  type Point = { at: number; endAt: number; input: number; turns: number; cacheRead: number; cacheKnown: boolean }
-  const data: Point[] = []
-  for (let offset = days - 1; offset >= 0; offset--) {
-    const at = shiftDay(anchor, -offset)
-    data.push({ at, endAt: at, input: 0, turns: 0, cacheRead: 0, cacheKnown: true })
+  const [focused, setFocused] = useState<number | undefined>()
+  const [hidden, setHidden] = useState<ReadonlySet<number>>(() => new Set())
+  const shown = (index: number) => !hidden.has(index)
+  const totals = buckets.map(bucket => bucket.values.reduce((total, value, index) => shown(index) ? total + value : total, 0))
+  const scale = niceScale(Math.max(0, ...totals))
+  const count = Math.max(1, buckets.length)
+  const slot = TREND_PLOT_WIDTH / count
+  // Wide slots get airy bars; a year of days packs them nearly edge to edge.
+  const barWidth = Math.max(1, Math.min(28, slot * (count > 120 ? 0.82 : 0.62)))
+  const separated = barWidth >= 6
+  const centerOf = (index: number) => TREND.left + slot * (index + 0.5)
+  const yOf = (value: number) => TREND.bottom - value / scale.top * TREND_PLOT_HEIGHT
+  const average = mode === 'cumulative' ? 0 : totals.reduce((total, value) => total + value, 0) / count
+  const grandTotal = series.reduce((total, row, index) => shown(index) ? total + row.total : total, 0)
+  const labelIndexes = spreadIndexes(buckets.length, 6)
+  const active = hovered === undefined ? undefined : buckets[hovered]
+  const bucketLabel = (bucket: TrendBucket) => mode === 'weekly' && bucket.endAt !== bucket.at
+    ? `${fmt.dayShort(bucket.at)} – ${fmt.dayShort(bucket.endAt)}` : fmt.dayMedium(bucket.at)
+  const toggle = (index: number) => {
+    setHidden(current => {
+      const next = new Set(current)
+      if (next.has(index)) next.delete(index)
+      else if (series.length - next.size > 1) next.add(index) // keep at least one series visible
+      return next
+    })
   }
-  const byDay = new Map(data.map((item, index) => [item.at, index]))
-  for (const record of records) {
-    const index = byDay.get(dayStart(record.at))
-    if (index === undefined) continue
-    const item = data[index]
-    if (item === undefined) continue
-    item.input += record.totalTokens - record.outputTokens
-    item.turns++
-    item.cacheRead += record.cacheReadTokens ?? 0
-    item.cacheKnown &&= record.cacheReadTokens !== undefined
+  const pick = (clientX: number, element: SVGSVGElement): void => {
+    const bounds = element.getBoundingClientRect()
+    const x = (clientX - bounds.left) / bounds.width * TREND.width
+    const index = Math.floor((x - TREND.left) / slot)
+    setHovered(index >= 0 && index < buckets.length ? index : undefined)
   }
-  const points = mode === 'weekly'
-    ? data.reduce<Point[]>((weeks, item) => {
-      const monday = shiftDay(item.at, -((new Date(item.at).getDay() + 6) % 7))
-      let week = weeks.at(-1)
-      if (week?.at !== monday) {
-        week = { at: monday, endAt: item.at, input: 0, turns: 0, cacheRead: 0, cacheKnown: true }
-        weeks.push(week)
-      }
-      week.endAt = item.at
-      week.input += item.input
-      week.turns += item.turns
-      week.cacheRead += item.cacheRead
-      week.cacheKnown &&= item.cacheKnown
-      return weeks
-    }, [])
-    : data
-  if (mode === 'cumulative') {
-    let input = 0
-    for (const item of points) {
-      input += item.input
-      item.input = input
-    }
-  }
-  // Ratios of an empty bucket are unknown, not zero: leave a gap instead of dragging the line down.
-  const valueOf = (point: Point): number | undefined => {
-    if (metric === 'turns') return point.turns
-    if (metric === 'averageInput') return point.turns ? point.input / point.turns : undefined
-    if (metric === 'cacheRate') return point.turns === 0 || !point.cacheKnown ? undefined : point.input ? point.cacheRead / point.input * 100 : 0
-    return point.input
-  }
-  const values = points.map(valueOf)
-  const scale = metric === 'cacheRate'
-    ? { top: 100, ticks: [0, 25, 50, 75, 100] }
-    : niceScale(Math.max(0, ...values.filter((value): value is number => value !== undefined)), metric === 'turns')
-  const xOf = (index: number) => PLOT_LEFT + (points.length === 1 ? PLOT_WIDTH / 2 : index * PLOT_WIDTH / (points.length - 1))
-  const yOf = (value: number) => PLOT_BOTTOM - value / scale.top * PLOT_HEIGHT
-  // Contiguous runs of known values; each draws one line and one filled area.
-  const runs: number[][] = []
-  values.forEach((value, index) => {
-    if (value === undefined) return
-    if (index === 0 || values[index - 1] === undefined) runs.push([])
-    runs.at(-1)?.push(index)
-  })
-  const linePath = (run: number[]) => run.map((index, position) => `${position === 0 ? 'M' : 'L'} ${xOf(index)} ${yOf(values[index] ?? 0)}`).join(' ')
-  const activeIndex = hovered !== undefined && hovered < points.length ? hovered : undefined
-  const active = activeIndex === undefined ? undefined : points[activeIndex]
-  const activeValue = activeIndex === undefined ? undefined : values[activeIndex]
-  const activeX = activeIndex === undefined ? undefined : xOf(activeIndex)
-  const updateHover = (clientX: number, width: number, left: number): void => {
-    const x = (clientX - left) / width * 790
-    setHovered(points.length === 1 ? 0 : Math.max(0, Math.min(points.length - 1, Math.round((x - PLOT_LEFT) / PLOT_WIDTH * (points.length - 1)))))
-  }
-  const format = (value: number | undefined): string => value === undefined ? '—'
-    : metric === 'cacheRate' ? `${value.toFixed(1)}%`
-      : `${metric === 'turns' ? fmt.integer(value) : fmt.amount(value)} ${metric === 'turns' ? t('turns') : t('tokenUnit')}`
-  const pointLabel = (point: Point) => mode === 'weekly' ? `${fmt.dayShort(point.at)} – ${fmt.dayShort(point.endAt)}` : fmt.dayMedium(point.at)
-  const labelIndexes = spreadIndexes(points.length, 6)
-  return <div className={css.chartWrap}>
-    <svg className={css.chart} viewBox="0 0 790 176" role="img" aria-label={label} tabIndex={0}
-      onPointerMove={event => { const bounds = event.currentTarget.getBoundingClientRect(); updateHover(event.clientX, bounds.width, bounds.left) }}
-      onPointerLeave={() => { setHovered(undefined) }}
-      onFocus={() => { setHovered(points.length - 1) }}
-      onBlur={() => { setHovered(undefined) }}
-      onKeyDown={event => {
-        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-        event.preventDefault()
-        setHovered(index => Math.max(0, Math.min(points.length - 1, (index ?? points.length - 1) + (event.key === 'ArrowLeft' ? -1 : 1))))
-      }}>
-      <defs><linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-        <stop offset="0%" style={{ stopColor: 'var(--usage-input)', stopOpacity: 0.22 }} />
-        <stop offset="100%" style={{ stopColor: 'var(--usage-input)', stopOpacity: 0 }} />
-      </linearGradient></defs>
-      <rect width="790" height="176" fill="transparent" />
-      {scale.ticks.map(tick => <g key={tick}>
-        <line x1={PLOT_LEFT} x2={PLOT_LEFT + PLOT_WIDTH} y1={yOf(tick)} y2={yOf(tick)} className={tick === 0 ? css.baseLine : css.gridLine} />
-        <text x={PLOT_LEFT - 10} y={yOf(tick) + 4} textAnchor="end" className={css.chartTick}>{metric === 'cacheRate' ? `${tick}%` : fmt.amount(tick)}</text>
-      </g>)}
-      {labelIndexes.map((index, position) => {
-        const point = points[index]
-        if (point === undefined) return null
-        const anchorSide = labelIndexes.length === 1 ? 'middle' : position === 0 ? 'start' : position === labelIndexes.length - 1 ? 'end' : 'middle'
-        return <text key={index} x={xOf(index)} y={170} textAnchor={anchorSide} className={css.chartTick}>{fmt.dayShort(point.at)}</text>
-      })}
-      {runs.map(run => run.length > 1 && <path key={`a${run[0]}`} fill={`url(#${gradientId})`}
-        d={`${linePath(run)} L ${xOf(run.at(-1) ?? 0)} ${PLOT_BOTTOM} L ${xOf(run[0] ?? 0)} ${PLOT_BOTTOM} Z`} />)}
-      {runs.map(run => <path key={`l${run[0]}`} d={linePath(run)} className={css.inputLine} />)}
-      {runs.map(run => run.length === 1 && <circle key={`p${run[0]}`} cx={xOf(run[0] ?? 0)} cy={yOf(values[run[0] ?? 0] ?? 0)} r="3" className={css.chartPoint} />)}
-      {activeX !== undefined && <><line x1={activeX} x2={activeX} y1={PLOT_BOTTOM - PLOT_HEIGHT} y2={PLOT_BOTTOM} className={css.chartGuide} />
-        {activeValue !== undefined && <circle cx={activeX} cy={yOf(activeValue)} r="4.5" className={css.chartPoint} />}</>}
-    </svg>
-    {active && activeX !== undefined && <div className={css.chartTooltip} style={{ left: `${Math.max(10, Math.min(90, activeX / 790 * 100))}%` }} role="status">
-      <span>{pointLabel(active)}</span>
-      <strong>{label} · {format(activeValue)}</strong>
-    </div>}
+  const activeX = hovered === undefined ? 0 : centerOf(hovered) / TREND.width * 100
+  return <div className={css.trend}>
+    <div className={css.chartWrap}>
+      <svg className={css.chart} viewBox={`0 0 ${TREND.width} ${TREND.height}`} role="img" tabIndex={0}
+        aria-label={`${t('trend')} · ${fmt.dayShort(buckets[0]?.at ?? 0)} – ${fmt.dayShort(buckets.at(-1)?.endAt ?? 0)}`}
+        onPointerMove={event => { pick(event.clientX, event.currentTarget) }}
+        onPointerLeave={() => { setHovered(undefined) }}
+        onFocus={() => { setHovered(buckets.length - 1) }}
+        onBlur={() => { setHovered(undefined) }}
+        onKeyDown={event => {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+          event.preventDefault()
+          setHovered(index => Math.max(0, Math.min(buckets.length - 1, (index ?? buckets.length - 1) + (event.key === 'ArrowLeft' ? -1 : 1))))
+        }}>
+        {scale.ticks.map(tick => <g key={tick}>
+          <line x1={TREND.left} x2={TREND.right} y1={yOf(tick)} y2={yOf(tick)} className={tick === 0 ? css.baseLine : css.gridLine} />
+          <text x={TREND.left - 10} y={yOf(tick) + 3.5} textAnchor="end" className={css.chartTick}>{fmt.amount(tick)}</text>
+        </g>)}
+        {hovered !== undefined && <rect className={css.hoverBand} x={centerOf(hovered) - slot / 2} y={TREND.top - 6}
+          width={slot} height={TREND.bottom - TREND.top + 6} rx={Math.min(6, slot / 2)} />}
+        <g key={`${mode}:${buckets[0]?.at}:${buckets.length}`}>
+          {buckets.map((bucket, index) => {
+            const x = centerOf(index) - barWidth / 2
+            const visible = bucket.values.map((value, seriesIndex) => ({ value, seriesIndex })).filter(item => item.value > 0 && shown(item.seriesIndex))
+            let base: number = TREND.bottom
+            return <g key={bucket.at} className={css.bar} opacity={hovered === undefined || hovered === index ? 1 : 0.55}
+              style={{ animationDelay: `${Math.min(index * 12, 360)}ms` }}>
+              {visible.map((item, position) => {
+                const height = item.value / scale.top * TREND_PLOT_HEIGHT
+                const top = base - height
+                base = top
+                const isTop = position === visible.length - 1
+                // A 1px gap between stacked segments when bars are wide enough to show it.
+                const drawn = separated && !isTop ? Math.max(0, height - 1) : height
+                const fade = focused === undefined || focused === item.seriesIndex ? undefined : 0.22
+                const fill = colors[item.seriesIndex % colors.length]
+                return isTop
+                  ? <path key={item.seriesIndex} d={roundedTop(x, top, barWidth, drawn, 3)} fill={fill} opacity={fade} />
+                  : <rect key={item.seriesIndex} x={x} y={top + (height - drawn)} width={barWidth} height={drawn} fill={fill} opacity={fade} />
+              })}
+            </g>
+          })}
+        </g>
+        {average > 0 && <g className={css.averageLine}>
+          <line x1={TREND.left} x2={TREND.right} y1={yOf(average)} y2={yOf(average)} />
+          <text x={TREND.right} y={yOf(average) - 5} textAnchor="end">{t(mode === 'weekly' ? 'weeklyAverage' : 'dailyAverage')} {fmt.amount(Math.round(average))}</text>
+        </g>}
+        {labelIndexes.map((index, position) => {
+          const bucket = buckets[index]
+          if (bucket === undefined) return null
+          const anchor = labelIndexes.length === 1 ? 'middle' : position === 0 ? 'start' : position === labelIndexes.length - 1 ? 'end' : 'middle'
+          const x = anchor === 'start' ? centerOf(index) - barWidth / 2 : anchor === 'end' ? centerOf(index) + barWidth / 2 : centerOf(index)
+          return <text key={index} x={x} y={TREND.height - 8} textAnchor={anchor} className={css.chartTick}>{fmt.dayShort(bucket.at)}</text>
+        })}
+      </svg>
+      {active && hovered !== undefined && <div className={css.trendTooltip} role="status"
+        style={{ left: `${activeX}%`, transform: activeX > 58 ? 'translateX(calc(-100% - 14px))' : 'translateX(14px)' }}>
+        <div className={css.trendTooltipHead}><span>{bucketLabel(active)}</span><strong>{fmt.amount(totals[hovered] ?? 0)}</strong></div>
+        {active.values.map((value, index) => ({ value, index })).filter(item => item.value > 0 && shown(item.index))
+          .sort((a, b) => b.value - a.value).map(item => <div key={item.index} className={css.trendTooltipRow}>
+            <i style={{ background: colors[item.index % colors.length] }} />
+            <span>{series[item.index]?.name}</span>
+            <strong>{fmt.amount(item.value)}</strong>
+            <small>{share(item.value, totals[hovered] ?? 0)}</small>
+          </div>)}
+        {(totals[hovered] ?? 0) === 0 && <div className={css.trendTooltipEmpty}>{t('noUsage')}</div>}
+      </div>}
+    </div>
+    <div className={css.trendLegend}>{series.map((row, index) => <button key={row.name} aria-pressed={shown(index)}
+      className={`${shown(index) ? '' : css.legendOff} ${focused === index ? css.legendFocus : ''}`}
+      onPointerEnter={() => { if (shown(index)) setFocused(index) }} onPointerLeave={() => { setFocused(undefined) }}
+      onClick={() => { setFocused(undefined); toggle(index) }} title={t('legendToggle')}>
+      <i style={{ background: colors[index % colors.length] }} />
+      <span>{row.name}</span>
+      <small>{shown(index) ? share(row.total, grandTotal) : '—'}</small>
+    </button>)}</div>
   </div>
 }
 
@@ -321,7 +328,7 @@ function RankBars({ rows, empty, unit, fmt }: { rows: readonly Rank[]; empty: st
   const total = Math.max(1, rows.reduce((sum, row) => sum + row.total, 0))
   return rows.length === 0 ? <p className={css.empty}>{empty}</p> : <div className={css.rankList}>
     {rows.slice(0, 6).map((row, index) => <Tooltip key={row.name} label={`${row.name}\n${fmt.integer(row.total)} ${unit} · ${share(row.total, total)}`} side="top" portal>
-      <div className={css.rankRow}>
+      <div>
       <div className={css.rankMeta}>
         <span>{row.name}</span>
         <strong>{fmt.amount(row.total)}<small>{share(row.total, total)}</small></strong>
@@ -344,10 +351,7 @@ function ShareDonut({ rows, empty, other, colors, unit, fmt }: {
   const [hovered, setHovered] = useState<number | undefined>()
   const total = rows.reduce((sum, row) => sum + row.total, 0)
   if (total === 0) return <p className={css.empty}>{empty}</p>
-  const shown = rows.length <= 6 ? rows : [
-    ...rows.slice(0, 5),
-    { name: other, total: rows.slice(5).reduce((sum, row) => sum + row.total, 0) },
-  ]
+  const shown = topWithOther(rows, other)
   let offset = 0
   const stops = shown.map((row, index) => {
     const from = offset
@@ -427,27 +431,24 @@ export function UsagePage({ useUsage, useProgress, activate, retry, rebuild, ope
   const [qualityOpen, setQualityOpen] = useState(false)
   const [project, setProject] = useState('')
   const [model, setModel] = useState('')
-  const [trend, setTrend] = useState<Trend>('daily')
-  const [trendModel, setTrendModel] = useState('')
-  const [efficiencyMetric, setEfficiencyMetric] = useState<Exclude<ChartMetric, 'input'>>('turns')
-  const [efficiencyMode, setEfficiencyMode] = useState<'daily' | 'weekly'>('daily')
-  const [efficiencyModel, setEfficiencyModel] = useState('')
+  const [trend, setTrend] = useState<TrendMode>('daily')
   const [sessionMode, setSessionMode] = useState<SessionMode>('high')
   useEffect(() => activate(), [activate])
 
   const fmt = formattersFor(locale())
   const unknown = t('unknown')
+  const other = t('other')
   const today = snapshot === undefined ? dayStart(Date.now()) : dayStart(snapshot.capturedAt)
   const customRange = custom ?? { first: shiftDay(today, -29), last: today }
   const view = useMemo(() => snapshot === undefined ? undefined : deriveDashboard(
-    snapshot, { period, custom: customRange, selectedDay, project, model, trendModel, efficiencyModel, sessionMode }, unknown,
-  ), [snapshot, period, customRange.first, customRange.last, selectedDay, project, model, trendModel, efficiencyModel, sessionMode, unknown])
+    snapshot, { period, custom: customRange, selectedDay, project, model, sessionMode }, { unknown, other },
+  ), [snapshot, period, customRange.first, customRange.last, selectedDay, project, model, sessionMode, unknown, other])
+  const buckets = useMemo(() => view === undefined ? []
+    : trendBuckets(view.selected, view.range, trend, view.modelSeriesOf, view.modelSeries.length), [view, trend])
   const setCustomEnd = (end: 'first' | 'last', value: string) => {
     const day = parseIsoDay(value)
     if (day !== undefined) setCustom(orderedRange(day, end === 'first' ? customRange.last : customRange.first))
   }
-  const efficiencyLabel = efficiencyMetric === 'turns' ? t('completedTurns')
-    : efficiencyMetric === 'averageInput' ? t('averageInputPerTurn') : t('cacheReadShare')
   const issueCount = view === undefined ? 0 : view.unreadable + view.missing + view.unattributed
 
   return <main className={css.page}><div className={css.content}>
@@ -460,7 +461,6 @@ export function UsagePage({ useUsage, useProgress, activate, retry, rebuild, ope
               const value = event.target.value
               setSelectedDay(undefined)
               setPeriod(value === 'custom' ? 'custom' : Number(value) as Period)
-              setTrendModel('')
             }}>
               {selectedDay !== undefined && <option value="selected">{fmt.dayNumeric(selectedDay)}</option>}
               <option value={7}>{t('days7')}</option><option value={30}>{t('days30')}</option><option value={90}>{t('days90')}</option><option value={365}>{t('days365')}</option>
@@ -475,10 +475,10 @@ export function UsagePage({ useUsage, useProgress, activate, retry, rebuild, ope
             </span>}
             {selectedDay !== undefined && <button className={css.clearDay} onClick={() => { setSelectedDay(undefined) }} title={t('clearDay')} aria-label={t('clearDay')}>✕</button>}
           </span>
-          <select className={css.select} aria-label={t('project')} value={project} onChange={(event) => { setProject(event.target.value); setModel(''); setTrendModel('') }}>
+          <select className={css.select} aria-label={t('project')} value={project} onChange={(event) => { setProject(event.target.value); setModel('') }}>
             <option value="">{t('allProjects')}</option>{snapshot.projects.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}
           </select>
-          <select className={css.select} aria-label={t('model')} value={model} onChange={(event) => { setModel(event.target.value); setTrendModel('') }}>
+          <select className={css.select} aria-label={t('model')} value={model} onChange={(event) => { setModel(event.target.value) }}>
             <option value="">{t('allModels')}</option>{view.models.map(item => <option key={item} value={item}>{item}</option>)}
           </select>
         </div>
@@ -519,36 +519,11 @@ export function UsagePage({ useUsage, useProgress, activate, retry, rebuild, ope
       </section>
       <Heatmap records={view.scoped} years={view.heatYears} year={heatYear} today={view.today} selectedDay={selectedDay}
         onYearChange={value => { setHeatYear(value); setSelectedDay(undefined) }}
-        onSelectDay={value => { setSelectedDay(current => current === value ? undefined : value); setTrendModel('') }} fmt={fmt} t={t} />
-      <section className={css.card}><div className={css.cardHead}><div><h2>{t('trend')}</h2><p>{t('trendNote')}</p></div><div className={css.cardControls}>
-        <select className={css.select} aria-label={t('trendScope')} value={view.activeTrendModel} onChange={(event) => { setTrendModel(event.target.value) }}>
-          <option value="">{t('allModels')}</option>{view.trendModels.map(item => <option key={item} value={item}>{item}</option>)}
-        </select>
-        <Segments modes={['daily', 'weekly', 'cumulative'] as const} value={trend} onChange={setTrend} label={t} />
-      </div></div>
-        {view.trendRecords.length ? <TrendChart records={view.trendRecords} days={view.daysInView} anchorAt={view.anchor} mode={trend} metric="input" label={`${t('input')} · ${view.activeTrendModel || t('allModels')}`} fmt={fmt} t={t} /> : <p className={css.empty}>{t('noData')}</p>}
-      </section>
-      <section className={css.card}>
-        <div className={css.cardHead}><div><h2>{t('efficiency')}</h2><p>{t('efficiencyNote')}</p></div><div className={css.cardControls}>
-          <select className={css.select} aria-label={t('trendScope')} value={view.activeEfficiencyModel} onChange={event => { setEfficiencyModel(event.target.value) }}>
-            <option value="">{t('allModels')}</option>{view.trendModels.map(item => <option key={item} value={item}>{item}</option>)}
-          </select>
-          <Segments modes={['daily', 'weekly'] as const} value={efficiencyMode} onChange={setEfficiencyMode} label={t} />
-        </div></div>
-        <div className={css.efficiencyStats} role="tablist" aria-label={t('efficiencyMetric')}>
-          {([
-            ['turns', t('completedTurns'), fmt.integer(view.completedTurns)],
-            ['averageInput', t('averageInputPerTurn'), view.averageInputPerTurn === undefined ? '—' : fmt.amount(view.averageInputPerTurn)],
-            ['cacheRate', t('cacheReadShare'), percent(view.efficiencyCacheShare)],
-          ] as const).map(([metric, label, value]) => <button key={metric} role="tab" aria-selected={efficiencyMetric === metric}
-            className={efficiencyMetric === metric ? css.metricActive : ''} onClick={() => { setEfficiencyMetric(metric) }}>
-            <span>{label}</span><strong>{value}</strong>
-          </button>)}
-          <div><Tooltip label={t('coverageExplanation')} side="top" portal><span>{t('measuredCoverage')} ⓘ</span></Tooltip><strong>{percent(view.coverage)}</strong></div>
-        </div>
-        {view.efficiencyRecords.length ? <TrendChart records={view.efficiencyRecords} days={view.daysInView} anchorAt={view.anchor} mode={efficiencyMode} metric={efficiencyMetric}
-          label={`${efficiencyLabel} · ${view.activeEfficiencyModel || t('allModels')}`} fmt={fmt} t={t} />
-          : <p className={css.empty}>{t('noData')}</p>}
+        onSelectDay={value => { setSelectedDay(current => current === value ? undefined : value) }} fmt={fmt} t={t} />
+      <section className={css.card}><div className={css.cardHead}><div><h2>{t('trend')}</h2><p>{t('trendNote')}</p></div>
+        <Segments modes={['daily', 'weekly', 'cumulative'] as const} value={trend} onChange={setTrend} label={t} /></div>
+        {view.selected.length ? <StackedTrend key={view.modelSeries.map(row => row.name).join('\0')} buckets={buckets}
+          series={view.modelSeries} colors={MODEL_COLORS} mode={trend} fmt={fmt} t={t} /> : <p className={css.empty}>{t('noData')}</p>}
       </section>
       <HourlyCard hourly={view.hourly} fmt={fmt} t={t} />
       <div className={css.twoCols}>

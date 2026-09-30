@@ -17,8 +17,6 @@ export interface Filters {
   readonly selectedDay: number | undefined
   readonly project: string
   readonly model: string
-  readonly trendModel: string
-  readonly efficiencyModel: string
   readonly sessionMode: SessionMode
 }
 
@@ -83,6 +81,93 @@ export function hourlyDistribution(records: readonly UsageRecord[]): HourlyDistr
     if (value > 0 && (peak === undefined || value > peak.tokens)) peak = { weekday, hour, tokens: value }
   }))
   return { tokens, turns, byHour, max: peak?.tokens ?? 0, ...(peak === undefined ? {} : { peak }) }
+}
+
+/** Localized labels for aggregated buckets. */
+export interface DashboardLabels {
+  /** Values without a model, provider, or project. */
+  readonly unknown: string
+  /** Everything beyond the named slots of a breakdown. */
+  readonly other: string
+}
+
+/**
+ * Keep the largest rows and fold the rest into one trailing "other" row, so a breakdown never
+ * needs more colors than it has slots. Shared by the donuts and the stacked trend so a model
+ * keeps the same color everywhere.
+ * @param rows - rows sorted largest first.
+ * @param other - label of the folded row.
+ * @param slots - maximum rows returned, including the folded one.
+ */
+export function topWithOther(rows: readonly Rank[], other: string, slots = 6): Rank[] {
+  if (rows.length <= slots) return [...rows]
+  const kept = rows.slice(0, slots - 1)
+  return [...kept, { name: other, total: rows.slice(slots - 1).reduce((total, row) => total + row.total, 0) }]
+}
+
+export type TrendMode = 'daily' | 'weekly' | 'cumulative'
+
+/** One bar of the stacked trend: per-series totals for a day or a week. */
+export interface TrendBucket {
+  readonly at: number
+  /** Last day covered; equals `at` for daily buckets. */
+  readonly endAt: number
+  /** Tokens per series, aligned with the series list. */
+  readonly values: readonly number[]
+  readonly total: number
+}
+
+/**
+ * Bucket records into stacked bars.
+ * @param records - records inside `range`.
+ * @param range - inclusive day range; every day or week in it gets a bucket, empty ones included.
+ * @param mode - daily bars, Monday-based weekly bars, or running totals per day.
+ * @param seriesOf - series index for a record.
+ * @param seriesCount - number of series.
+ */
+export function trendBuckets(
+  records: readonly UsageRecord[],
+  range: DayRange,
+  mode: TrendMode,
+  seriesOf: (record: UsageRecord) => number,
+  seriesCount: number,
+): TrendBucket[] {
+  type Mutable = { at: number; endAt: number; values: number[]; total: number }
+  const days: Mutable[] = []
+  const indexByDay = new Map<number, number>()
+  for (let day = range.first; day <= range.last; day = shiftDay(day, 1)) {
+    indexByDay.set(day, days.length)
+    days.push({ at: day, endAt: day, values: new Array<number>(seriesCount).fill(0), total: 0 })
+  }
+  for (const record of records) {
+    const bucket = days[indexByDay.get(dayStart(record.at)) ?? -1]
+    if (bucket === undefined) continue
+    bucket.values[seriesOf(record)]! += record.totalTokens
+    bucket.total += record.totalTokens
+  }
+  if (mode === 'cumulative') {
+    const running = new Array<number>(seriesCount).fill(0)
+    return days.map(day => {
+      day.values.forEach((value, index) => { running[index]! += value })
+      return { ...day, values: [...running], total: running.reduce((total, value) => total + value, 0) }
+    })
+  }
+  if (mode === 'daily') return days
+  const weeks: Mutable[] = []
+  for (const day of days) {
+    const monday = shiftDay(day.at, -((new Date(day.at).getDay() + 6) % 7))
+    let week = weeks.at(-1)
+    if (week?.at !== monday) {
+      week = { at: monday, endAt: day.at, values: new Array<number>(seriesCount).fill(0), total: 0 }
+      weeks.push(week)
+    }
+    week.endAt = day.at
+    day.values.forEach((value, index) => { week.values[index]! += value })
+    week.total += day.total
+  }
+  // A partial first week starts at the range's first day, not the Monday before it.
+  if (weeks[0] !== undefined) weeks[0].at = Math.max(weeks[0].at, range.first)
+  return weeks
 }
 
 /** Prompt-side tokens of one record: uncached, cache read, and cache write input. */
@@ -150,8 +235,9 @@ function dominantRoute(records: readonly UsageRecord[], unknown: string): string
  * @param unknown - localized label for unattributed values.
  * @returns immutable view model; recompute only when an input changes.
  */
-export function deriveDashboard(snapshot: UsageSnapshot, filters: Filters, unknown: string) {
-  const { period, custom, selectedDay, project, model, trendModel, efficiencyModel, sessionMode } = filters
+export function deriveDashboard(snapshot: UsageSnapshot, filters: Filters, labels: DashboardLabels) {
+  const { unknown, other } = labels
+  const { period, custom, selectedDay, project, model, sessionMode } = filters
   const today = dayStart(snapshot.capturedAt)
   const range: DayRange = selectedDay !== undefined ? { first: selectedDay, last: selectedDay }
     : period === 'custom' ? custom : { first: shiftDay(today, 1 - period), last: today }
@@ -172,12 +258,6 @@ export function deriveDashboard(snapshot: UsageSnapshot, filters: Filters, unkno
   const selected = scoped.filter(record => record.at >= start && record.at < end)
   const previous = scoped.filter(record => record.at >= previousStart && record.at < start)
 
-  const trendModels = modelsOf(selected)
-  const activeTrendModel = trendModels.includes(trendModel) ? trendModel : ''
-  const trendRecords = activeTrendModel ? selected.filter(record => record.model === activeTrendModel) : selected
-  const activeEfficiencyModel = trendModels.includes(efficiencyModel) ? efficiencyModel : ''
-  const efficiencyRecords = activeEfficiencyModel
-    ? selected.filter(record => record.model === activeEfficiencyModel) : selected
 
   const total = sum(selected, record => record.totalTokens)
   const prior = sum(previous, record => record.totalTokens)
@@ -194,10 +274,11 @@ export function deriveDashboard(snapshot: UsageSnapshot, filters: Filters, unkno
   const missing = qualityIssues.filter(issue => issue.kind === 'missing-turn').length
   const unattributed = qualityIssues.filter(issue => issue.kind === 'unattributed-turn').length
 
-  const completedTurns = efficiencyRecords.length
-  const efficiencyInput = sum(efficiencyRecords, inputOf)
-  const coverage = !model && !activeEfficiencyModel && unreadable === 0 && completedTurns + missing > 0
-    ? completedTurns / (completedTurns + missing) * 100 : undefined
+  const modelRows = grouped(selected, record => record.model ?? unknown)
+  const modelSeries = topWithOther(modelRows, other)
+  const namedSeries = new Map(modelSeries.map((row, index) => [row.name, index]))
+  // Models folded into "other" share its trailing slot.
+  const modelSeriesOf = (record: UsageRecord): number => namedSeries.get(record.model ?? unknown) ?? modelSeries.length - 1
 
   const sessionTotals = new Map<SessionId, number>()
   for (const record of selected) sessionTotals.set(record.sessionId, (sessionTotals.get(record.sessionId) ?? 0) + record.totalTokens)
@@ -216,12 +297,10 @@ export function deriveDashboard(snapshot: UsageSnapshot, filters: Filters, unkno
   return {
     today, range, anchor, daysInView, start, end, projectById,
     hourly: hourlyDistribution(selected),
-    models, scoped, selected, trendModels, activeTrendModel, trendRecords, activeEfficiencyModel, efficiencyRecords,
+    models, scoped, selected, modelSeries, modelSeriesOf,
     total, prior, peak, priorPeak, activeDays: dayTotals.length, priorActiveDays: priorDays.length,
     cacheRate, cacheRateDelta: cacheRate === undefined || previousCacheRate === undefined ? undefined : cacheRate - previousCacheRate,
     qualityIssues, unreadable, missing, unattributed,
-    completedTurns, averageInputPerTurn: completedTurns ? efficiencyInput / completedTurns : undefined,
-    efficiencyCacheShare: cacheRatePercent(efficiencyRecords), coverage,
     composition: {
       uncached: sum(selected, record => record.inputTokens),
       cacheRead: sum(selected, record => record.cacheReadTokens ?? 0),
@@ -230,7 +309,7 @@ export function deriveDashboard(snapshot: UsageSnapshot, filters: Filters, unkno
       other: sum(selected, record => Math.max(0, record.totalTokens - record.inputTokens - record.outputTokens
         - (record.cacheReadTokens ?? 0) - (record.cacheWriteTokens ?? 0))),
     },
-    modelRows: grouped(selected, record => record.model ?? unknown),
+    modelRows,
     providerRows: grouped(selected, record => record.provider ?? unknown),
     projectRows: grouped(selected, record => projectById.get(sessionById.get(record.sessionId)?.projectId ?? '') ?? unknown),
     earliestDay: dayStart(snapshot.records.reduce((earliest, record) => Math.min(earliest, record.at), today)),

@@ -19,8 +19,6 @@ export interface Filters {
     readonly selectedDay: number | undefined;
     readonly project: string;
     readonly model: string;
-    readonly trendModel: string;
-    readonly efficiencyModel: string;
     readonly sessionMode: SessionMode;
 }
 /** One ranked session with its period total and dominant route. */
@@ -54,6 +52,41 @@ export interface HourlyDistribution {
 }
 /** Bucket usage by the local weekday and hour its turn ended. */
 export declare function hourlyDistribution(records: readonly UsageRecord[]): HourlyDistribution;
+/** Localized labels for aggregated buckets. */
+export interface DashboardLabels {
+    /** Values without a model, provider, or project. */
+    readonly unknown: string;
+    /** Everything beyond the named slots of a breakdown. */
+    readonly other: string;
+}
+/**
+ * Keep the largest rows and fold the rest into one trailing "other" row, so a breakdown never
+ * needs more colors than it has slots. Shared by the donuts and the stacked trend so a model
+ * keeps the same color everywhere.
+ * @param rows - rows sorted largest first.
+ * @param other - label of the folded row.
+ * @param slots - maximum rows returned, including the folded one.
+ */
+export declare function topWithOther(rows: readonly Rank[], other: string, slots?: number): Rank[];
+export type TrendMode = 'daily' | 'weekly' | 'cumulative';
+/** One bar of the stacked trend: per-series totals for a day or a week. */
+export interface TrendBucket {
+    readonly at: number;
+    /** Last day covered; equals `at` for daily buckets. */
+    readonly endAt: number;
+    /** Tokens per series, aligned with the series list. */
+    readonly values: readonly number[];
+    readonly total: number;
+}
+/**
+ * Bucket records into stacked bars.
+ * @param records - records inside `range`.
+ * @param range - inclusive day range; every day or week in it gets a bucket, empty ones included.
+ * @param mode - daily bars, Monday-based weekly bars, or running totals per day.
+ * @param seriesOf - series index for a record.
+ * @param seriesCount - number of series.
+ */
+export declare function trendBuckets(records: readonly UsageRecord[], range: DayRange, mode: TrendMode, seriesOf: (record: UsageRecord) => number, seriesCount: number): TrendBucket[];
 /** Prompt-side tokens of one record: uncached, cache read, and cache write input. */
 export declare function inputOf(record: UsageRecord): number;
 /** Sum total tokens per key, largest first. */
@@ -78,7 +111,7 @@ export declare function streaks(days: Iterable<number>, first: number, last: num
  * @param unknown - localized label for unattributed values.
  * @returns immutable view model; recompute only when an input changes.
  */
-export declare function deriveDashboard(snapshot: UsageSnapshot, filters: Filters, unknown: string): {
+export declare function deriveDashboard(snapshot: UsageSnapshot, filters: Filters, labels: DashboardLabels): {
     today: number;
     range: DayRange;
     anchor: number;
@@ -90,11 +123,8 @@ export declare function deriveDashboard(snapshot: UsageSnapshot, filters: Filter
     models: string[];
     scoped: readonly UsageRecord[];
     selected: UsageRecord[];
-    trendModels: string[];
-    activeTrendModel: string;
-    trendRecords: UsageRecord[];
-    activeEfficiencyModel: string;
-    efficiencyRecords: UsageRecord[];
+    modelSeries: Rank[];
+    modelSeriesOf: (record: UsageRecord) => number;
     total: number;
     prior: number;
     peak: number;
@@ -107,10 +137,6 @@ export declare function deriveDashboard(snapshot: UsageSnapshot, filters: Filter
     unreadable: number;
     missing: number;
     unattributed: number;
-    completedTurns: number;
-    averageInputPerTurn: number | undefined;
-    efficiencyCacheShare: number | undefined;
-    coverage: number | undefined;
     composition: {
         uncached: number;
         cacheRead: number;
