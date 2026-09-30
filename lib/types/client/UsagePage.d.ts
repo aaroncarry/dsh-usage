@@ -21,9 +21,11 @@ export interface UsagePageInjected {
     readonly retry: () => void;
     readonly rebuild: () => void;
     readonly openSession: (id: SessionId) => void;
+    /** Active UI language id, read on every render so a language switch reformats dates. */
+    readonly locale: () => string;
 }
 type Props = PropsRuntime<'main'> & PropsLocale<'usageStatistics'> & InjectFace<UsagePageInjected>;
 /** Render token activity, trends, breakdowns, and session navigation. @param props - localized page services. @returns dashboard. */
-export declare function UsagePage({ useUsage, useProgress, activate, retry, rebuild, openSession, t }: Props): import("react").JSX.Element;
+export declare function UsagePage({ useUsage, useProgress, activate, retry, rebuild, openSession, locale, t }: Props): import("react").JSX.Element;
 export {};
 //# sourceMappingURL=UsagePage.d.ts.map

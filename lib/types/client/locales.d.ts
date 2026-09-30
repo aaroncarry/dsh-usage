@@ -86,6 +86,8 @@ export declare const zh: {
     readonly missing: "部分会话的用量未知";
     readonly tokenUnit: "Token";
     readonly openSession: "打开会话";
+    readonly noPrior: "上一周期无数据";
+    readonly cacheUnknown: "部分轮次未报告缓存";
 };
 /** English fallback dictionary. */
 export declare const en: Record<keyof typeof zh, string>;
